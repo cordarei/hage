@@ -4,6 +4,8 @@
          (prefix-in : parser-tools/lex-sre)
          parser-tools/yacc)
 
+(provide ptb-read)
+
 
 (define default-root-label 'ROOT)
 
