@@ -26,7 +26,7 @@
 (define (format-parse-error tok-ok name val start-pos end-pos)
   (format "parse error with token-ok?:~a name:~a val:~a from ~a to ~a~n" tok-ok name val start-pos end-pos))
 (define (display-parse-error tok-ok name val start-pos end-pos)
-  (display (format-parse-error ok name val start-pos end-pos)))
+  (display (format-parse-error tok-ok name val start-pos end-pos)))
 
 (define ptb-parser
   (parser
