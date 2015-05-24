@@ -5,26 +5,11 @@
 #lang racket
 
 (require racket/control)
+(require racket/generator)
 
 (module+ test
   (require rackunit))
 
-;; ---------------------------------------------------------------------------------------------------
-; abstract syntax
-
-(struct ast-lit-node
-  (literal
-  private))
-
-(struct ast-sym-node
-  (symbol
-  children
-  private))
-
-(struct ast-seq-node
-  (quantifier
-  child
-  private))
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; automata
@@ -38,18 +23,18 @@
    empty-rules
    final-states
    special-states
-   submatch-states))
+   submatch-states) #:transparent)
 
 ;; a non-empty rule: f(q_in)q_out -> q
-(struct label-rule
+(struct labeled-rule
   (sym-name
   in-state
   out-state
-  final-state))
+  final-state) #:transparent)
 
 ;; an empty rule: () -> q
 (struct empty-rule
-  (final-state))
+  (final-state) #:transparent)
 
 ;; special symbol for matching unlabeled trees
 (define unlabeled-tree (gensym))
@@ -59,10 +44,10 @@
   (define ex-fta
     (fta '(q0 q1 q2 q3 q4 q6)
          '(a b c d)
-         (list (label-rule 'a 'q1 'q2 'q0)
-               (label-rule 'b 'q2 'q4 'q1)
-               (label-rule 'c 'q2 'q6 'q4)
-               (label-rule 'd 'q2 'q2 'q6))
+         (list (labeled-rule 'a 'q1 'q2 'q0)
+               (labeled-rule 'b 'q2 'q4 'q1)
+               (labeled-rule 'c 'q2 'q6 'q4)
+               (labeled-rule 'd 'q2 'q2 'q6))
          (list (empty-rule 'q2))
          '(q0)
          '()
@@ -78,8 +63,8 @@
 
 ;; does the given rule match the given node in the given state
 (define (rule-match? fta rule node state)
-  (let* ([q (label-rule-final-state rule)]
-        [f (label-rule-sym-name rule)]
+  (let* ([q (labeled-rule-final-state rule)]
+        [f (labeled-rule-sym-name rule)]
         [n.label (cond
                    [(eq? f unlabeled-tree) f]
                    [(list? node) (car node)]
@@ -113,14 +98,17 @@
 (define (error) (shift k #f))
 (define (or/error x) (or x (error)))
 #;(define (select-or-error f xs) (let ([xs (filter f xs)]) (if (empty? xs) (error) xs)))
+
 (define (match-empty fta state)
   #;(select-or-error (λ (r) (eq? state (empty-rule-final-state r))) (fta-empty-rules fta))
   (or/error (for/or ([r (fta-empty-rules fta)]) (eq? state (empty-rule-final-state r)))))
-(define-syntax-rule (combine-result child-result sibling-result) (and child-result sibling-result))
+
+(define-syntax-rule (combine-result child-result sibling-result) (begin child-result sibling-result))
+
 (define (match-with-rule fta rule node siblings state)
-  (let ([qin (label-rule-in-state rule)]
-        [qout (label-rule-out-state rule)])
-    (begin
+  (let ([qin (labeled-rule-in-state rule)]
+        [qout (labeled-rule-out-state rule)])
+    (combine-result
      (if (leaf? node)
          (match-empty fta qin)
          (match-node fta (leftchild node) (child-siblings node) qin))
@@ -139,15 +127,156 @@
   (check-not-false (match-node ex-fta '(a b c d) '() 'q0))
   (check-not-false (match-node ex-fta 'b '(c d) 'q1))
   (check-not-false (match-node ex-fta 'd '() 'q6))
-  
   (check-false (match-node ex-fta '(a b) '() 'q0))
-  (check-false (match-node ex-fta '(a c) '() 'q0))
+  (check-false (match-node ex-fta '(a c) '() 'q0)))
+
+;; run automaton fta against tree
+(define (fta-match fta tree)
+  (for/or ([q (fta-final-states fta)])
+    (reset (match-node fta tree '() q))))
+
+(module+ test
+  (check-not-false (fta-match ex-fta '(a b c d)))
+  (check-false (fta-match ex-fta '(b d)))
+  (check-false (fta-match ex-fta 'b))
+  (check-false (fta-match ex-fta '(a b c)))
+  (check-false (fta-match ex-fta '(a c b d))))
+
+;; ---------------------------------------------------------------------------------------------------
+;; abstract syntax
+
+;; literal atom or 'symbol
+(struct ast-lit-node
+  (literal
+  private))
+
+;; (@ symbol rte ...) or (symbol rte ...)
+(struct ast-sym-node
+  (symbol
+  children
+  private))
+
+;; (^ rte ...)
+(struct ast-unlabelled-node
+  (children
+   private))
+
+;; (* rte ...) or (+ rte ...) or (? rte ...)
+(struct ast-seq-node
+  (quantifier
+  child
+  private))
+
+;; (| rte ...)
+(struct ast-choice-node
+  (children
+   private))
+
+;;; compile
+
+(define (ast->fta ast)
+  ;(define (new-state) (gensym 'q))
+  (define new-state (generator () (let loop ([i 0]) (begin (yield i) (loop (+ i 1)))) ))
+
+  (define qf (new-state))
+  (define empty-state (new-state))
+  
+  (define-values (states rules emprules)
+    ; return (values states rules emp-rules)
+    (let loop ([ast ast] [qf qf] [qout empty-state])
+      (match ast
+        [(ast-lit-node lit priv)
+         (values '()
+                 (list (labeled-rule lit empty-state qout qf))
+                 '())]
+        
+        [(ast-choice-node children priv)
+         (for/fold ([child-states '()]
+                    [child-rules '()]
+                    [child-erules '()])
+                   ([c children])
+           (let-values ([(s r e) (loop c qf qout)])
+             (values (append s child-states)
+                     (append r child-rules)
+                     (append e child-erules))))]
+        
+        [(ast-sym-node symbol children priv)
+         (define-values (states rules erules in-state) 
+           (for/fold ([child-states '()]
+                    [child-rules '()]
+                    [child-erules '()]
+                    [last-state empty-state])
+                   ([c (reverse children)])
+             (define q (new-state))
+             (let-values ([(s r e) (loop c q last-state)])
+               (values (append s child-states)
+                       (append r child-rules)
+                       (append e child-erules)
+                       q))))
+         (values states
+                 (cons (labeled-rule symbol in-state qout qf)
+                       rules)
+                 erules)]
+        
+        [(ast-seq-node quantifier child priv)
+         (unless (eq? quantifier '+) (raise-argument-error 'ast->fta '+ quantifier))
+         
+         (define-values (child-states child-rules child-erules)
+           (loop child null null))
+         (values null null null)]
+        
+        )))
+  
+  (fta states null rules (cons (empty-rule empty-state) emprules) (list qf) null null)
   )
 
-;---
-; interface
+(module+ test
+  
+  ;;; sequences
+  
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a 42)))
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a 42 42)))
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a 42 42 42)))
+  (check-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a)))
+  (check-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a 42 1 42)))
+  (check-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
+              '(a 42 42 42 'x)))
+  
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 1)))
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 42 1)))
+  (check-not-false 
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 42 42 1)))
+  (check-false
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 42 42)))
+  )
 
-(define (trx-match aut tree) #f)
+;; ---------------------------------------------------------------------------------------------------
+;; interface
+
+(define (trx-match fta tree)
+  #f)
+
 (define-syntax-rule (trx rte)
   #f)
 
