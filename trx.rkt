@@ -17,7 +17,6 @@
 ;; the record type that holds a compiled tree automaton
 (struct fta
   (states
-   ;; list of labels used in rules -- unused?
    alphabet
    labeled-rules
    empty-rules
@@ -180,6 +179,35 @@
 
   (define qf (new-state))
   (define empty-state (new-state))
+
+  (define (make-rules label child-states transitions)
+    (for*/list ([trans transitions]
+                [child-state child-states])
+      (match trans
+        ([`(,q ,qout)
+          (labeled-rule label child-state qout q)]))))
+
+  (define (make-transitions current-state out-states repeat?)
+    (for/fold ([trans (if repeat? `(,current-state ,current-state) '())])
+              ([o out-states])
+      (cons `(,current-state ,o) trans)))
+
+  (define (compile-node ast-node current-state out-states [repeat? #f])
+
+    (define (compile-children children))
+
+    (match ast
+      [(ast-lit-node lit priv)
+       (values (list current-state)
+               (make-rules lit (list empty-state) (make-transitions current-state out-states repeat?)))
+               '())]
+
+      [(ast-seq-node quantifier child priv)
+       (define-values (next-states lrules erules)
+         (compile-node child out-states (not (eq? quantifier '?))))
+       ]
+      )
+    )
 
   (define-values (states rules emprules)
     ; return (values states rules emp-rules)
