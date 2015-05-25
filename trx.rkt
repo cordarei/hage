@@ -180,7 +180,7 @@
 
   (define qf (new-state))
   (define empty-state (new-state))
-  
+
   (define-values (states rules emprules)
     ; return (values states rules emp-rules)
     (let loop ([ast ast] [qf qf] [qout empty-state])
@@ -189,7 +189,7 @@
          (values '()
                  (list (labeled-rule lit empty-state qout qf))
                  '())]
-        
+
         [(ast-choice-node children priv)
          (for/fold ([child-states '()]
                     [child-rules '()]
@@ -199,9 +199,9 @@
              (values (append s child-states)
                      (append r child-rules)
                      (append e child-erules))))]
-        
+
         [(ast-sym-node symbol children priv)
-         (define-values (states rules erules in-state) 
+         (define-values (states rules erules in-state)
            (for/fold ([child-states '()]
                     [child-rules '()]
                     [child-erules '()]
@@ -217,51 +217,51 @@
                  (cons (labeled-rule symbol in-state qout qf)
                        rules)
                  erules)]
-        
+
         [(ast-seq-node quantifier child priv)
          (unless (eq? quantifier '+) (raise-argument-error 'ast->fta '+ quantifier))
-         
+
          (define-values (child-states child-rules child-erules)
            (loop child null null))
          (values null null null)]
-        
+
         )))
-  
+
   (fta states null rules (cons (empty-rule empty-state) emprules) (list qf) null null)
   )
 
 (module+ test
-  
+
   ;;; sequences
-  
-  (check-not-false 
+
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42)))
-  (check-not-false 
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42 42)))
-  (check-not-false 
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42 42 42)))
-  (check-false 
+  (check-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a)))
-  (check-false 
+  (check-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42 1 42)))
-  (check-false 
+  (check-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42 42 42 'x)))
-  
-  (check-not-false 
+
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
                                                (ast-lit-node 1 null)) null))
               '(a 1)))
-  (check-not-false 
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
                                                (ast-lit-node 1 null)) null))
               '(a 42 1)))
-  (check-not-false 
+  (check-not-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
                                                (ast-lit-node 1 null)) null))
               '(a 42 42 1)))
