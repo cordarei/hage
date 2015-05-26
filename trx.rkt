@@ -205,7 +205,7 @@
                (labeled-rule epsilon 'qe 'q10' q9)
                (labeled-rule epsilon 'qe 'q7 'q10)
                (labeled-rule epsilon 'qe 'q11 'q7)
-               (labeled-rule '+ 'q5 'q12 'q11)
+               (labeled-rule '+ 'q6 'q12 'q11)
                (labeled-rule epsilon 'qe 'q10 'q12))
          (list (empty-rule 'qe) (empty-rule 'q10))
          '(q0)
@@ -213,8 +213,8 @@
          null))
   
   (check-not-false (fta-match complex-fta 1))
-;  (check-not-false (fta-match complex-fta '(+ 1 1 1)))
-;  (check-not-false (fta-match complex-fta '(+ 1 1 (+ 1))))
+  (check-not-false (fta-match complex-fta '(+ 1 1 1)))
+  (check-not-false (fta-match complex-fta '(+ 1 1 (+ 1))))
   )
 
 ;; ---------------------------------------------------------------------------------------------------
