@@ -1,3 +1,3 @@
-#lang racket/base
+#lang info
 
 (define collection "hage")
