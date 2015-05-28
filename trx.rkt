@@ -36,9 +36,9 @@
   (final-state) #:transparent)
 
 ;; symbol for epsilon rules
-(define epsilon (gensym))
+(define epsilon (string->uninterned-symbol "ε"))
 ;; special symbol for matching unlabeled trees
-(define unlabeled-tree (gensym))
+(define unlabeled-tree (string->uninterned-symbol "^"))
 
 (module+ test
   ;; example fta that matches (a b c d) and no other tree
@@ -82,18 +82,6 @@
   (check-true (rule-match? ex-fta (list-ref (fta-labeled-rules ex-fta) 1) 'b 'q1))
   (check-true (rule-match? ex-fta (list-ref (fta-labeled-rules ex-fta) 1) '(b c d) 'q1))
   (check-true (rule-match? ex-fta (list-ref (fta-labeled-rules ex-fta) 3) 'd 'q6)))
-
-#;
-(define (select-rule fta node state)
-  (filter (λ (r) (rule-match? fta r node state))
-          (fta-labeled-rules fta)))
-
-#;
-(module+ test
-  (check-equal? (select-rule ex-fta '(a b c d) 'q0) (list (list-ref (fta-labeled-rules ex-fta) 0)))
-  (check-equal? (select-rule ex-fta 'b 'q1) (list (list-ref (fta-labeled-rules ex-fta) 1)))
-  (check-equal? (select-rule ex-fta 'd 'q6) (list (list-ref (fta-labeled-rules ex-fta) 3)))
-  (check-equal? (select-rule ex-fta '(a b c d) 'q1) '()))
 
 
 (define (leaf? node) (or (not (list? node)) (empty? (cdr node))))
@@ -147,28 +135,15 @@
   (define repeats? (λ (r) (eq? (labeled-rule-out-state r) (labeled-rule-final-state r))))
   (define eps? (λ (r) (eq? epsilon (labeled-rule-sym-name r))))
   (define neither? (λ (r) (not (or (repeats? r) (eps? r)))))
-  
-  (let ()
-    (define matching-rules (filter matches? (fta-labeled-rules fta)))
-    (define-values (epsilon-rules non-epsilon-rules) (partition eps? matching-rules))
-    (define reordered-rules (let-values ([(a b) (partition repeats? non-epsilon-rules)]) (append a b)))
-    (or/err
-     (for/or ([r reordered-rules])
-       (reset (match-with-rule fta r node siblings state)))
-     (for/or ([r epsilon-rules])
-       (reset (match-node fta node siblings (labeled-rule-out-state r))))))
-  
-;  ;; partition and reorder rules lazily
-;  (define matching-rules (stream-filter matches? (fta-labeled-rules fta)))
-;  (define repeating-rules (stream-filter repeats? matching-rules))
-;  (define epsilon-rules (stream-filter eps? matching-rules))
-;  (define neither-rules (stream-filter neither? matching-rules))
-;  (define reordered-rules (stream-append repeating-rules neither-rules epsilon-rules))
-;
-;  (or/error
-;   (for/or ([r (in-stream reordered-rules)])
-;    (reset (match-with-rule fta r node siblings state))))
-  )
+
+  (define matching-rules (filter matches? (fta-labeled-rules fta)))
+  (define-values (epsilon-rules non-epsilon-rules) (partition eps? matching-rules))
+  (define reordered-rules (let-values ([(a b) (partition repeats? non-epsilon-rules)]) (append a b)))
+  (or/err
+   (for/or ([r reordered-rules])
+     (reset (match-with-rule fta r node siblings state)))
+   (for/or ([r epsilon-rules])
+     (reset (match-node fta node siblings (labeled-rule-out-state r))))))
 
 (module+ test
   (check-not-false (match-node ex-fta '(a b c d) '() 'q0))
@@ -188,7 +163,7 @@
   (check-false (fta-match ex-fta 'b))
   (check-false (fta-match ex-fta '(a b c)))
   (check-false (fta-match ex-fta '(a c b d)))
-  
+
   ;; =/= (rec q (| 1 (@ + (+ q))))
   (define complex-fta
     (fta null
@@ -211,7 +186,7 @@
          '(q0)
          null
          null))
-  
+
   (check-not-false (fta-match complex-fta 1))
   (check-not-false (fta-match complex-fta '(+ 1 1 1)))
   (check-not-false (fta-match complex-fta '(+ 1 1 (+ 1))))
@@ -232,7 +207,7 @@
   private))
 
 ;; (^ rte ...)
-(struct ast-unlabelled-node
+(struct ast-unlabeled-node
   (children
    private))
 
@@ -253,88 +228,87 @@
   ;(define (new-state) (gensym 'q))
   (define new-state (generator () (let loop ([i 0]) (begin (yield i) (loop (+ i 1)))) ))
 
-  (define qf (new-state))
   (define empty-state (new-state))
 
-  (define (make-rules label child-states transitions)
-    (for*/list ([trans transitions]
-                [child-state child-states])
-      (match trans
-        [`(,q ,qout)
-          (labeled-rule label child-state qout q)])))
+  (define (compile-children-with-symbol state out-state symbol children)
+    (define child-end-state (new-state))
+    (define-values (child-state child-rules child-empty-symbols)
+      (compile-nodes-in-sequence children child-end-state))
+    (values state
+            (cons (labeled-rule symbol child-state out-state state)
+                  child-rules)
+            (cons child-end-state child-empty-symbols)))
 
-  (define (make-transitions current-state out-states repeat?)
-    (for/fold ([trans (if repeat? `(,current-state ,current-state) '())])
-              ([o out-states])
-      (cons `(,current-state ,o) trans)))
+  (define (compile-nodes-in-sequence nodes out-state)
+    (for/fold ([out-state out-state]
+               [lrules '()]
+               [empty-symbols '()])
+        ([node (reverse nodes)])
+      (define-values (s r e)
+        (compile-node node out-state))
+      (values s (append r lrules) (append e empty-symbols))))
 
-  (define (compile-node ast-node current-state out-states [repeat? #f])
-
-    (define (compile-children children) null)
-
+  (define (compile-node ast out-state)
+    (define state (new-state))
     (match ast
-      [(ast-lit-node lit priv)
-       (values (list current-state)
-               (make-rules lit (list empty-state) (make-transitions current-state out-states repeat?))
+
+      [(ast-lit-node literal priv)
+       (values state
+               (list (labeled-rule literal empty-state out-state state))
                '())]
 
+      [(ast-sym-node symbol children priv)
+       (compile-children-with-symbol state out-state symbol children)]
+
+      [(ast-unlabeled-node children priv)
+       (compile-children-with-symbol state out-state unlabeled-tree children)]
+
       [(ast-seq-node quantifier child priv)
-       (define-values (next-states lrules erules)
-         (compile-node child out-states (not (eq? quantifier '?))))
+       (define child-out-state (if (eq? quantifier '+) out-state (new-state)))
+       (define-values (child-state child-rules child-empty-symbols)
+         (compile-node child child-out-state))
+       (define maybe-skip-rules
+         (if (eq? quantifier '+)
+             child-rules
+             (cons (labeled-rule epsilon null out-state state)
+                   (cons (labeled-rule epsilon null out-state child-out-state)
+                         child-rules))))
+       (define maybe-repeat-rules
+         (if (eq? quantifier '?)
+             maybe-skip-rules
+             (cons (labeled-rule epsilon null child-state child-out-state)
+                   maybe-skip-rules)))
+       (define rules (cons (labeled-rule epsilon null child-state state) maybe-repeat-rules))
+       (values state
+               rules
+               child-empty-symbols)]
+
+      [(ast-choice-node children priv)
+       (define-values (rules empty-symbols)
+         (for/fold ([rules '()]
+                    [empty-symbols '()])
+             ([child children])
+           (define child-out-state (new-state))
+           (define-values (child-state child-rules child-empty-symbols)
+             (compile-node child child-out-state))
+           (values (cons (labeled-rule epsilon null child-state state)
+                         (cons (labeled-rule epsilon null child-out-state out-state)
+                               rules))
+                   (append child-empty-symbols empty-symbols))))
+       (values state rules empty-symbols)]
+      ))
+
+  (define-values (state rules empty-symbols) (compile-node ast empty-state))
+
+  (fta null
        null
-       ]
-      )
-    )
-
-  (define-values (states rules emprules)
-    ; return (values states rules emp-rules)
-    (let loop ([ast ast] [qf qf] [qout empty-state])
-      (match ast
-        [(ast-lit-node lit priv)
-         (values '()
-                 (list (labeled-rule lit empty-state qout qf))
-                 '())]
-
-        [(ast-choice-node children priv)
-         (for/fold ([child-states '()]
-                    [child-rules '()]
-                    [child-erules '()])
-                   ([c children])
-           (let-values ([(s r e) (loop c qf qout)])
-             (values (append s child-states)
-                     (append r child-rules)
-                     (append e child-erules))))]
-
-        [(ast-sym-node symbol children priv)
-         (define-values (states rules erules in-state)
-           (for/fold ([child-states '()]
-                    [child-rules '()]
-                    [child-erules '()]
-                    [last-state empty-state])
-                   ([c (reverse children)])
-             (define q (new-state))
-             (let-values ([(s r e) (loop c q last-state)])
-               (values (append s child-states)
-                       (append r child-rules)
-                       (append e child-erules)
-                       q))))
-         (values states
-                 (cons (labeled-rule symbol in-state qout qf)
-                       rules)
-                 erules)]
-
-        [(ast-seq-node quantifier child priv)
-         (unless (eq? quantifier '+) (raise-argument-error 'ast->fta '+ quantifier))
-
-         (define-values (child-states child-rules child-erules)
-           (loop child null null))
-         (values null null null)]
-
-        )))
-
-  (fta states null rules (cons (empty-rule empty-state) emprules) (list qf) null null)
+       rules
+       (map empty-rule (cons empty-state empty-symbols))
+       (list state)
+       null
+       null)
   )
-#;
+
 (module+ test
 
   ;;; sequences
@@ -358,7 +332,7 @@
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
               '(a 42 42 42 'x)))
 
-  (check-not-false
+  (check-false
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
                                                (ast-lit-node 1 null)) null))
               '(a 1)))
@@ -374,6 +348,19 @@
    (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
                                                (ast-lit-node 1 null)) null))
               '(a 42 42)))
+
+  (check-not-false
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 1)))
+  (check-not-false
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 42 1)))
+  (check-false
+   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
+                                               (ast-lit-node 1 null)) null))
+              '(a 42 42 1)))
   )
 
 ;; ---------------------------------------------------------------------------------------------------
