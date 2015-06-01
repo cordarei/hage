@@ -7,6 +7,8 @@
 (require racket/control)
 (require racket/generator)
 
+(require (for-syntax syntax/parse))
+
 (module+ test
   (require rackunit))
 
@@ -340,92 +342,74 @@
 
 (module+ test
 
-  ;;; sequences
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))])
+    (check-not-false (fta-match ast '(a 42)))
+    (check-not-false (fta-match ast '(a 42 42)))
+    (check-not-false (fta-match ast '(a 42 42 42)))
+    (check-false (fta-match ast '(a)))
+    (check-false (fta-match ast '(a 42 1 42)))
+    (check-false (fta-match ast '(a 42 42 42 'x))))
 
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a 42)))
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a 42 42)))
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a 42 42 42)))
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a)))
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a 42 1 42)))
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))
-              '(a 42 42 42 'x)))
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
+                                              (ast-lit-node 1 null)) null))])
+    (check-not-false (fta-match ast '(a 42 1)))
+    (check-not-false (fta-match ast '(a 42 42 1)))
+    (check-false (fta-match ast '(a 1)))
+    (check-false (fta-match ast '(a 42 42))))
 
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 1)))
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 42 1)))
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 42 42 1)))
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 42 42)))
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
+                                              (ast-lit-node 1 null)) null))])
+    (check-not-false (fta-match ast '(a 1)))
+    (check-not-false (fta-match ast '(a 42 1)))
+    (check-false (fta-match ast '(a 42 42 1))))
 
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 1)))
-  (check-not-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 42 1)))
-  (check-false
-   (fta-match (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
-                                               (ast-lit-node 1 null)) null))
-              '(a 42 42 1)))
+  (let ([ast (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node number? null) null)) null)])
+    (check-not-false (fta-match (ast->fta ast) '(+ 1 2 42)))
+    (check-false (fta-match (ast->fta ast) '(+ 1 a 42))))
 
-  (let ([ast (ast-sym-node '+
-                           (list
-                            (ast-seq-node '+
-                                          (ast-special-node number? null)
-                                          null))
-                           null)])
-    (check-not-false (fta-match (ast->fta ast)
-                                '(+ 1 2 42)))
-    (check-false (fta-match (ast->fta ast)
-                            '(+ 1 a 42))))
-
-  (let ([ast (ast-sym-node '+
-                           (list
-                            (ast-seq-node '+
-                                          (ast-special-node (λ (x)
-                                                              (or (number? x)
-                                                                  (string? x)))
-                                                            null)
-                                          null))
-                           null)])
-    (check-not-false (fta-match (ast->fta ast)
-                                '(+ 1 2 42)))
-    (check-not-false (fta-match (ast->fta ast)
-                            '(+ 1 "a" 42)))
-    (check-false (fta-match (ast->fta ast)
-                            '(+ 1 a 42)))))
+  (let ([ast (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node (λ (x) (or (number? x) (string? x))) null) null)) null)])
+    (check-not-false (fta-match (ast->fta ast) '(+ 1 2 42)))
+    (check-not-false (fta-match (ast->fta ast) '(+ 1 "a" 42)))
+    (check-false (fta-match (ast->fta ast) '(+ 1 a 42)))))
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; interface
 
-(define (trx-match fta tree)
-  #f)
+(define (trx-match ast tree) (fta-match (ast->fta ast) tree))
 
-(define-syntax-rule (trx rte)
-  #f)
+
+(define-syntax (trx stx)
+  (syntax-parse stx
+    #:datum-literals (@ ^ any or * + ? quote unquote)
+    [(_ (unquote ex))
+     #'(ast-special-node ex null)]
+    [(_ lit:str)
+     #'(ast-lit-node lit null)]
+    [(_ lit:number)
+     #'(ast-lit-node lit null)]
+    [(_ lit:boolean)
+     #'(ast-lit-node lit null)]
+    [(_ lit:char)
+     #'(ast-lit-node lit null)]
+    [(_ (quote symbol:id))
+     #'(ast-lit-node (quote symbol) null)]
+    [(_ (^ rte ...))
+     #'(ast-unlabeled-node (list (trx rte) ...) null)]
+    [(_ (any))
+     #'(ast-special-node (const #t) null)]
+    [(_ (or rte ...))
+     #'(ast-choice-node (list (trx rte) ...) null)]
+    [(_ (* rte))
+     #'(ast-seq-node '* (trx rte) null)]
+    [(_ (+ rte))
+     #'(ast-seq-node '+ (trx rte) null)]
+    [(_ (? rte))
+     #'(ast-seq-node '? (trx rte) null)]
+    [(_ (@ symbol:id rte ...))
+     #'(ast-sym-node (quote symbol) (list (trx rte) ...) null)]
+    [(_ (symbol:id rte ...))
+     #'(ast-sym-node (quote symbol) (list (trx rte) ...) null)]
+    ))
 
 (module+ test
-  #;(check-not-false (trx-match (trx 'a) 'a)))
+  (check-not-false (trx-match (trx 'a) 'a)))
