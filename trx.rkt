@@ -201,39 +201,65 @@
 ;; literal atom or 'symbol
 (struct ast-lit-node
   (literal
-  private)
+  [private #:mutable])
   #:transparent)
 
 ;; (@ symbol rte ...) or (symbol rte ...)
 (struct ast-sym-node
   (symbol
   children
-  private)
+  [private #:mutable])
   #:transparent)
 
 ;; (^ rte ...)
 (struct ast-unlabeled-node
   (children
-   private)
+   [private #:mutable])
   #:transparent)
 
 ;; (* rte ...) or (+ rte ...) or (? rte ...)
 (struct ast-seq-node
   (quantifier
   child
-  private)
+  [private #:mutable])
   #:transparent)
 
 ;; (| rte ...)
 (struct ast-choice-node
   (children
-   private)
+   [private #:mutable])
   #:transparent)
 
+;; ,number? ,(λ (x) scheme code)
 (struct ast-special-node
   (proc
-   private)
+   [private #:mutable])
   #:transparent)
+
+;; recursive rte (rec id rte)
+(struct ast-rec-node
+  (id
+   child
+   [private #:mutable])
+  #:transparent)
+
+(struct ast-ref-node
+  (id
+   [private #:mutable])
+  #:transparent)
+
+(define (set-private! ast priv)
+  (cond
+    [(ast-lit-node? ast) (set-ast-lit-node-private! ast priv)]
+    [(ast-sym-node? ast) (set-ast-sym-node-private! ast priv)]
+    [(ast-unlabeled-node? ast) (set-ast-unlabeled-node-private! ast priv)]
+    [(ast-seq-node? ast) (set-ast-seq-node-private! ast priv)]
+    [(ast-choice-node? ast) (set-ast-choice-node-private! ast priv)]
+    [(ast-special-node? ast) (set-ast-special-node-private! ast priv)]
+    [(ast-rec-node? ast) (set-ast-rec-node-private! ast priv)]
+    [(ast-ref-node? ast) (set-ast-ref-node-private! ast priv)]
+    [else (raise-argument-error 'ast "ast must be an ast struct" ast)]
+    ))
 
 ;;; compile
 
@@ -243,30 +269,36 @@
 
   (define empty-state (new-state))
 
-  (define (compile-children-with-symbol state out-state symbol children)
-    (define child-end-state (new-state))
-    (define-values (child-state child-rules child-empty-symbols child-special-states)
-      (compile-nodes-in-sequence children child-end-state))
-    (values state
-            (cons (labeled-rule symbol child-state out-state state)
-                  child-rules)
-            (cons child-end-state child-empty-symbols)
-            child-special-states))
+  (define (compile-children-with-symbol ast priv state out-state symbol children id-ast-map)
+    (cond
+      [(priv ast)
+       (values state (list (labeled-rule symbol priv out-state state)) null null)]
+      [else
+       (set-private! ast (box #f))
+       (define child-end-state (new-state))
+       (define-values (child-state child-rules child-empty-symbols child-special-states)
+         (compile-nodes-in-sequence children child-end-state id-ast-map))
+       (set-box! (priv ast) child-state)
+       (values state
+               (cons (labeled-rule symbol child-state out-state state)
+                     child-rules)
+               (cons child-end-state child-empty-symbols)
+               child-special-states)]))
 
-  (define (compile-nodes-in-sequence nodes out-state)
+  (define (compile-nodes-in-sequence nodes out-state id-ast-map)
     (for/fold ([out-state out-state]
                [lrules '()]
                [empty-symbols '()]
                [special-states '()])
         ([node (reverse nodes)])
       (define-values (s r e p)
-        (compile-node node out-state))
+        (compile-node node out-state id-ast-map))
       (values s
               (append r lrules)
               (append e empty-symbols)
               (append p special-states))))
 
-  (define (compile-node ast out-state)
+  (define (compile-node ast out-state id-ast-map)
     (define state (new-state))
     (match ast
 
@@ -277,15 +309,15 @@
                '())]
 
       [(ast-sym-node symbol children priv)
-       (compile-children-with-symbol state out-state symbol children)]
+       (compile-children-with-symbol ast ast-sym-node-private state out-state symbol children id-ast-map)]
 
       [(ast-unlabeled-node children priv)
-       (compile-children-with-symbol state out-state unlabeled-tree children)]
+       (compile-children-with-symbol ast ast-unlabeled-node-private state out-state unlabeled-tree children id-ast-map)]
 
       [(ast-seq-node quantifier child priv)
        (define child-out-state (if (eq? quantifier '+) out-state (new-state)))
        (define-values (child-state child-rules child-empty-symbols child-special-states)
-         (compile-node child child-out-state))
+         (compile-node child child-out-state id-ast-map))
        (define maybe-skip-rules
          (if (eq? quantifier '+)
              child-rules
@@ -311,7 +343,7 @@
              ([child children])
            (define child-out-state (new-state))
            (define-values (child-state child-rules child-empty-symbols child-special-states)
-             (compile-node child child-out-state))
+             (compile-node child child-out-state id-ast-map))
            (values (cons (labeled-rule epsilon null child-state state)
                          (cons (labeled-rule epsilon null child-out-state out-state)
                                rules))
@@ -326,14 +358,47 @@
                (list (cons state proc))
                )]
 
+      [(ast-rec-node id child priv)
+       (compile-node child out-state (cons (cons id child) id-ast-map))
+       ;; (define-values (child-state child-rules child-empty-symbols child-special-states)
+       ;;   (compile-node child #f (cons (cons id child) id-ast-map)))
+       ;; (values null null null null)
+       ]
+
+      [(ast-ref-node id priv)
+       (cond
+         [priv
+          (values priv null null null)]
+         [else
+          (define ref-ast (assoc id id-ast-map))
+          (set-private! ast (box #f))
+          (define-values (ref-state ref-rules ref-empty-symbols ref-special-states)
+            (compile-node (cdr ref-ast) out-state id-ast-map))
+          (set-box! (ast-ref-node-private ast) ref-state)
+          (values ref-state ref-rules ref-empty-symbols ref-special-states)
+          ])
+       ]
+
       ))
 
   (define-values (state rules empty-symbols special-states)
-    (compile-node ast empty-state))
+    (compile-node ast empty-state null))
+
+  (define (unbox-assert b)
+    (or (unbox b)
+        (error "boxed state value was null")))
+  (define (maybe-unbox b)
+    (if (box? b)
+        (unbox-assert b)
+        b))
+  (define (fixup-rule r)
+    (match r
+      [(labeled-rule f in out q)
+       (labeled-rule f (maybe-unbox in) (maybe-unbox out) (maybe-unbox q))]))
 
   (fta null
        null
-       rules
+       (map fixup-rule rules)
        (map empty-rule (cons empty-state empty-symbols))
        (list state)
        special-states
@@ -342,7 +407,7 @@
 
 (module+ test
 
-  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)) null))])
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 #f) #f)) #f))])
     (check-not-false (fta-match ast '(a 42)))
     (check-not-false (fta-match ast '(a 42 42)))
     (check-not-false (fta-match ast '(a 42 42 42)))
@@ -350,27 +415,49 @@
     (check-false (fta-match ast '(a 42 1 42)))
     (check-false (fta-match ast '(a 42 42 42 'x))))
 
-  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 null) null)
-                                              (ast-lit-node 1 null)) null))])
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '+ (ast-lit-node 42 #f) #f)
+                                              (ast-lit-node 1 #f)) #f))])
     (check-not-false (fta-match ast '(a 42 1)))
     (check-not-false (fta-match ast '(a 42 42 1)))
     (check-false (fta-match ast '(a 1)))
     (check-false (fta-match ast '(a 42 42))))
 
-  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 null) null)
-                                              (ast-lit-node 1 null)) null))])
+  (let ([ast (ast->fta (ast-sym-node 'a (list (ast-seq-node '? (ast-lit-node 42 #f) #f)
+                                              (ast-lit-node 1 #f)) #f))])
     (check-not-false (fta-match ast '(a 1)))
     (check-not-false (fta-match ast '(a 42 1)))
     (check-false (fta-match ast '(a 42 42 1))))
 
-  (let ([ast (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node number? null) null)) null)])
+  (let ([ast (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node number? #f) #f)) #f)])
     (check-not-false (fta-match (ast->fta ast) '(+ 1 2 42)))
     (check-false (fta-match (ast->fta ast) '(+ 1 a 42))))
 
-  (let ([ast (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node (λ (x) (or (number? x) (string? x))) null) null)) null)])
-    (check-not-false (fta-match (ast->fta ast) '(+ 1 2 42)))
-    (check-not-false (fta-match (ast->fta ast) '(+ 1 "a" 42)))
-    (check-false (fta-match (ast->fta ast) '(+ 1 a 42)))))
+  (let ([fta (ast->fta (ast-sym-node '+ (list (ast-seq-node '+ (ast-special-node (λ (x) (or (number? x) (string? x))) #f) #f)) #f))])
+    (check-not-false (fta-match fta '(+ 1 2 42)))
+    (check-not-false (fta-match fta '(+ 1 "a" 42)))
+    (check-false (fta-match fta '(+ 1 a 42))))
+
+  (let ([fta (ast->fta (ast-rec-node 'q
+                                     (ast-choice-node
+                                      (list
+                                       (ast-lit-node null #f)
+                                       (ast-sym-node 'cons
+                                                     (list (ast-ref-node 'q #f)
+                                                           (ast-ref-node 'q #f))
+                                                     #f)
+                                       (ast-sym-node 'cons
+                                                     (list (ast-lit-node 1 #f)
+                                                           (ast-ref-node 'q #f))
+                                                     #f))
+                                      #f)
+                                     #f))])
+    (check-not-false (fta-match fta '(cons 1 null)))
+    (check-not-false (fta-match fta '(cons null null)))
+    (check-not-false (fta-match fta '(cons (cons 1 null) null)))
+    (check-false (fta-match fta '(cons null 1)))
+    (check-false (fta-match fta '(cons (cons a null) (cons 1 null))))
+    )
+  )
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; interface
@@ -380,36 +467,41 @@
 
 (define-syntax (trx stx)
   (syntax-parse stx
-    #:datum-literals (@ ^ any or * + ? quote unquote)
+    #:datum-literals (@ ^ any or * + ? quote unquote rec let let* letrec)
+    [(_ rec ident:id rte)
+     #'(ast-rec-node (quote ident) (trx rte) #f)]
     [(_ (unquote ex))
-     #'(ast-special-node ex null)]
+     #'(ast-special-node ex #f)]
     [(_ lit:str)
-     #'(ast-lit-node lit null)]
+     #'(ast-lit-node lit #f)]
     [(_ lit:number)
-     #'(ast-lit-node lit null)]
+     #'(ast-lit-node lit #f)]
     [(_ lit:boolean)
-     #'(ast-lit-node lit null)]
+     #'(ast-lit-node lit #f)]
     [(_ lit:char)
-     #'(ast-lit-node lit null)]
+     #'(ast-lit-node lit #f)]
     [(_ (quote symbol:id))
-     #'(ast-lit-node (quote symbol) null)]
+     #'(ast-lit-node (quote symbol) #f)]
     [(_ (^ rte ...))
-     #'(ast-unlabeled-node (list (trx rte) ...) null)]
+     #'(ast-unlabeled-node (list (trx rte) ...) #f)]
     [(_ (any))
-     #'(ast-special-node (const #t) null)]
+     #'(ast-special-node (const #t) #f)]
     [(_ (or rte ...))
-     #'(ast-choice-node (list (trx rte) ...) null)]
+     #'(ast-choice-node (list (trx rte) ...) #f)]
     [(_ (* rte))
-     #'(ast-seq-node '* (trx rte) null)]
+     #'(ast-seq-node '* (trx rte) #f)]
     [(_ (+ rte))
-     #'(ast-seq-node '+ (trx rte) null)]
+     #'(ast-seq-node '+ (trx rte) #f)]
     [(_ (? rte))
-     #'(ast-seq-node '? (trx rte) null)]
+     #'(ast-seq-node '? (trx rte) #f)]
     [(_ (@ symbol:id rte ...))
-     #'(ast-sym-node (quote symbol) (list (trx rte) ...) null)]
+     #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
     [(_ (symbol:id rte ...))
-     #'(ast-sym-node (quote symbol) (list (trx rte) ...) null)]
+     #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
+    [ident
+     #'(ast-ref-node (quote ident) #f)]
     ))
 
 (module+ test
-  (check-not-false (trx-match (trx 'a) 'a)))
+  (check-not-false (trx-match (trx 'a) 'a))
+  (check-not-false (trx-match (trx (rec q (or (cons 1 q) (cons q q) null))) '(cons 1 null))))
