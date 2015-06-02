@@ -272,7 +272,7 @@
   (define (compile-children-with-symbol ast priv state out-state symbol children id-ast-map)
     (cond
       [(priv ast)
-       (values state (list (labeled-rule symbol priv out-state state)) null null)]
+       (values state (list (labeled-rule symbol (priv ast) out-state state)) null null)]
       [else
        (set-private! ast (box #f))
        (define child-end-state (new-state))
@@ -346,7 +346,7 @@
              (compile-node child child-out-state id-ast-map))
            (values (cons (labeled-rule epsilon null child-state state)
                          (cons (labeled-rule epsilon null child-out-state out-state)
-                               rules))
+                               (append child-rules rules)))
                    (append child-empty-symbols empty-symbols)
                    (append child-special-states special-states))))
        (values state rules empty-symbols special-states)]
@@ -371,6 +371,7 @@
           (values priv null null null)]
          [else
           (define ref-ast (assoc id id-ast-map))
+          (unless ref-ast (raise-arguments-error 'id-ast-map "no entry for reference node" "node" id "map" id-ast-map))
           (set-private! ast (box #f))
           (define-values (ref-state ref-rules ref-empty-symbols ref-special-states)
             (compile-node (cdr ref-ast) out-state id-ast-map))
@@ -468,7 +469,7 @@
 (define-syntax (trx stx)
   (syntax-parse stx
     #:datum-literals (@ ^ any or * + ? quote unquote rec let let* letrec)
-    [(_ rec ident:id rte)
+    [(_ (rec ident:id rte))
      #'(ast-rec-node (quote ident) (trx rte) #f)]
     [(_ (unquote ex))
      #'(ast-special-node ex #f)]
@@ -498,10 +499,10 @@
      #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
     [(_ (symbol:id rte ...))
      #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
-    [ident
+    [(_ ident:id)
      #'(ast-ref-node (quote ident) #f)]
     ))
 
 (module+ test
   (check-not-false (trx-match (trx 'a) 'a))
-  (check-not-false (trx-match (trx (rec q (or (cons 1 q) (cons q q) null))) '(cons 1 null))))
+  (check-not-false (trx-match (trx (rec q (or (cons 1 q) (cons q q) 'null))) '(cons 1 null))))
