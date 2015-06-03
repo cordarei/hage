@@ -12,7 +12,7 @@
 (module+ test
   (require rackunit))
 
-(provide trx trx-match ast->fta)
+(provide trx trx-match ast->fta build-ast)
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; automata

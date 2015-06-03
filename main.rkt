@@ -8,7 +8,7 @@
 (define (! pred?) (lambda (x) (not (pred? x))))
 
 (define pat (trx (^ ,np? (+ (any)))))
-(define non-recursive (trx (^ ,np? (+ (rec notnp (^ ,(! np?) (+ notnp)))))))
+(define non-recursive (trx (^ ,np? (+ (rec notnp (or (^ ,string? ,string?) (^ ,(! np?) (+ notnp))))))))
 
 (define tree (car (ptb-read (open-input-file "/home/joseph/Data/PTB/combined/wsj/00/wsj_0003.mrg"))))
 
