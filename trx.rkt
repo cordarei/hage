@@ -12,6 +12,7 @@
 (module+ test
   (require rackunit))
 
+(provide trx trx-match ast->fta)
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; automata
@@ -125,7 +126,7 @@
     [(labeled-rule f qin qout _)
      (define cs (children node (not (eq? unlabeled-tree f))))
      (combine-result
-      (if (null? cs)
+      (if (or (null? cs) (assoc state (fta-special-states fta)))
           (match-empty fta qin)
           (match-node fta (car cs) (cdr cs) qin))
       (if (empty? siblings)
@@ -345,7 +346,7 @@
            (define-values (child-state child-rules child-empty-symbols child-special-states)
              (compile-node child child-out-state id-ast-map))
            (values (cons (labeled-rule epsilon null child-state state)
-                         (cons (labeled-rule epsilon null child-out-state out-state)
+                         (cons (labeled-rule epsilon null out-state child-out-state)
                                (append child-rules rules)))
                    (append child-empty-symbols empty-symbols)
                    (append child-special-states special-states))))
@@ -441,7 +442,7 @@
   (let ([fta (ast->fta (ast-rec-node 'q
                                      (ast-choice-node
                                       (list
-                                       (ast-lit-node null #f)
+                                       (ast-lit-node 'null #f)
                                        (ast-sym-node 'cons
                                                      (list (ast-ref-node 'q #f)
                                                            (ast-ref-node 'q #f))
@@ -463,14 +464,11 @@
 ;; ---------------------------------------------------------------------------------------------------
 ;; interface
 
-(define (trx-match ast tree) (fta-match (ast->fta ast) tree))
-
-
-(define-syntax (trx stx)
+(define-syntax (build-ast stx)
   (syntax-parse stx
     #:datum-literals (@ ^ any or * + ? quote unquote rec let let* letrec)
     [(_ (rec ident:id rte))
-     #'(ast-rec-node (quote ident) (trx rte) #f)]
+     #'(ast-rec-node (quote ident) (build-ast rte) #f)]
     [(_ (unquote ex))
      #'(ast-special-node ex #f)]
     [(_ lit:str)
@@ -484,25 +482,34 @@
     [(_ (quote symbol:id))
      #'(ast-lit-node (quote symbol) #f)]
     [(_ (^ rte ...))
-     #'(ast-unlabeled-node (list (trx rte) ...) #f)]
+     #'(ast-unlabeled-node (list (build-ast rte) ...) #f)]
     [(_ (any))
      #'(ast-special-node (const #t) #f)]
     [(_ (or rte ...))
-     #'(ast-choice-node (list (trx rte) ...) #f)]
+     #'(ast-choice-node (list (build-ast rte) ...) #f)]
     [(_ (* rte))
-     #'(ast-seq-node '* (trx rte) #f)]
+     #'(ast-seq-node '* (build-ast rte) #f)]
     [(_ (+ rte))
-     #'(ast-seq-node '+ (trx rte) #f)]
+     #'(ast-seq-node '+ (build-ast rte) #f)]
     [(_ (? rte))
-     #'(ast-seq-node '? (trx rte) #f)]
+     #'(ast-seq-node '? (build-ast rte) #f)]
     [(_ (@ symbol:id rte ...))
-     #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
+     #'(ast-sym-node (quote symbol) (list (build-ast rte) ...) #f)]
     [(_ (symbol:id rte ...))
-     #'(ast-sym-node (quote symbol) (list (trx rte) ...) #f)]
+     #'(ast-sym-node (quote symbol) (list (build-ast rte) ...) #f)]
     [(_ ident:id)
      #'(ast-ref-node (quote ident) #f)]
     ))
 
+(define-syntax (trx stx)
+  (syntax-case stx ()
+    [(_ rte) #'(ast->fta (build-ast rte))]))
+
+(define (trx-match fta tree) (fta-match fta tree))
+
+
 (module+ test
   (check-not-false (trx-match (trx 'a) 'a))
-  (check-not-false (trx-match (trx (rec q (or (cons 1 q) (cons q q) 'null))) '(cons 1 null))))
+  (check-not-false (trx-match (trx (rec q (or (cons 1 q) (cons q q) 'null))) '(cons 1 null)))
+  (check-not-false (trx-match (trx (any)) 42))
+  (check-not-false (trx-match (trx (any)) '(+ 1 2 3))))
