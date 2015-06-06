@@ -7,7 +7,7 @@
 (provide ptb-read)
 
 
-(define default-root-label 'ROOT)
+(define default-root-label "ROOT")
 
 ;;----
 ;; lexer
@@ -42,7 +42,7 @@
            [() null])
     (s [(sexp) $1]
        [(empty-root) $1])
-    (empty-root [(OP sexp CP) (list default-root-label (list $2))])
+    (empty-root [(OP sexp CP) (list default-root-label $2)])
     (sexp [(leaf) $1]
           [(OP LABEL sexp-list CP) (cons $2 (reverse $3))])
     (leaf [(OP LABEL LABEL CP) (list $2 $3)])
