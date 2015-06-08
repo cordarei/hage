@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require hage/parser)
-(require hage/trx)
+(require racket-trx/trx)
 
 
 (define (np? x) (equal? "NP" (substring x 0 2)))
@@ -12,9 +12,9 @@
 
 (define tree (car (ptb-read (open-input-file "/home/joseph/Data/PTB/combined/wsj/00/wsj_0003.mrg"))))
 
-(define npsbj (cadr 
+(define npsbj (cadr
                (cadr
-                (caadr tree))))
+                (cadr tree))))
 (define basenp (cadr (cadr npsbj)))
 
 (trx-match pat npsbj)
