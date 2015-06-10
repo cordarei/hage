@@ -56,6 +56,9 @@
        (constituent (parse-label label) '() (map helper children))]))
   (tree (helper sxp)))
 
+
+(define (annotate-tree t proc init) #f)
+
 ;; ---------------------------------------------------------------------------------------------------
 ;; experiments
 
