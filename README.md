@@ -67,7 +67,7 @@ coordination. Other examples look like `S-TPC-1`, `ADVP-CLR`, `NP=2`, and `PP-LO
 
 It's not impossible to work with the labels as strings, but it isn't very
 convenient, so the `parse-label` function will parse a label string into a
-`constituent-label` structure.
+`ptb/label` structure.
 
 ### Data type
 
