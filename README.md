@@ -63,6 +63,17 @@ things like movement traces (if you believe in movement). They look like
 have function tags added to indicate grammatical function, and numbers for coreference and
 coordination. Other examples look like `S-TPC-1`, `ADVP-CLR`, `NP=2`, and `PP-LOC-PRD-TPC-3`.
 
+### Labels
+
+It's not impossible to work with the labels as strings, but it isn't very
+convenient, so the `parse-label` function will parse a label string into a
+`constituent-label` structure.
+
+### Data type
+
+The s-expression encoding of PTB trees is not easy to work with; everything is a string, the
+list representation is slightly awkward, and there is no good way to annotate constituents with extra
+information such as length or span etc. We define an improved representation for PTB trees.
 
 ## Copying
 
