@@ -47,6 +47,9 @@
 (struct constituent (label attr children) #:transparent)
 (struct tagged-word (word pos attr) #:transparent)
 
+(define (get-attr k attr) (assoc k attr))
+(define (set-attr k v attr) (cons (cons k v) (filter (λ (x) (not (equal? k (car x)))) attr)))
+
 (define (sexp->tree sxp)
   (define (helper s)
     (match s
@@ -56,8 +59,28 @@
        (constituent (parse-label label) '() (map helper children))]))
   (tree (helper sxp)))
 
-
-(define (annotate-tree t proc init) #f)
+; Tree -> Tree
+(define (add-spans t)
+  (define (helper c start)
+    (match c
+      [(constituent label attr children)
+       (define-values (new-children end)
+         (for/fold ([new-children '()]
+                    [new-start start])
+                   ([c children])
+           (define-values (new-child new-end)
+             (helper c new-start))
+           (values (cons new-child new-children)
+                   new-end)))
+       (values (constituent label
+                            (set-attr 'span (cons start end) attr)
+                            (reverse new-children))
+               end)]
+      [(tagged-word word pos attr)
+       (values (tagged-word word pos (set-attr 'span (cons start (+ start 1)) attr))
+               (+ start 1))]))
+  (let-values ([(root end) (helper (tree-root-constituent t) 0)])
+    (tree root)))
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; experiments
