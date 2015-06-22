@@ -43,6 +43,7 @@
 ;; ---------------------------------------------------------------------------------------------------
 ;; trees
 
+;; Tree = tree constituent | constituent ptb/label attr (listof Tree) | tagged-ord String String attr
 (struct tree (root-constituent) #:transparent)
 (struct constituent (label attr children) #:transparent)
 (struct tagged-word (word pos attr) #:transparent)
@@ -55,9 +56,32 @@
     (match s
       [(list (? string? pos) (? string? word))
        (tagged-word word pos '())]
+      [(list "ROOT" (? list? child))
+       (helper child)]
       [(list (? string? label) (? list? children) ...)
        (constituent (parse-label label) '() (map helper children))]))
   (tree (helper sxp)))
+
+
+(define (yield sth)
+  (match sth
+    [(tagged-word word pos attr)
+     (list word)]
+    [(constituent label attr children)
+     (apply append (map yield children))]
+    [(tree root)
+     (yield root)]))
+
+;; Tree (listof Natural) -> Tree
+(define (tree-ref t idx)
+  (if (null? idx)
+      t
+      (match t
+        [(constituent l a cs)
+         (tree-ref (list-ref cs (car idx)) (cdr idx))]
+        [(tree r) (if (= 0 (car idx))
+                      (tree-ref r (cdr idx))
+                      (error "oops"))])))
 
 ; Tree -> Tree
 (define (add-spans t)
@@ -82,6 +106,21 @@
   (let-values ([(root end) (helper (tree-root-constituent t) 0)])
     (tree root)))
 
+(define (annotate-empty t)
+  (match t
+    [(tagged-word w p a)
+     (tagged-word w p (set-attr 'empty (equal? p "-NONE-") a))]
+    [(constituent l a cs)
+     ...]))
+
+
+;;;
+;;; or try a zipper-based processing model?
+;;;  pass multiple processor functions which work on zipper positions to the main annotate function
+;;; annotations could be stored in separate list
+;;; tree position as index
+;;; lexicographic order of tree positions == pre-order
+
 ;; ---------------------------------------------------------------------------------------------------
 ;; experiments
 
@@ -92,11 +131,14 @@
 (define non-recursive (trx (^ ,np? (+ (rec notnp (or (^ ,string? ,string?) (^ ,(! np?) (+ notnp))))))))
 
 (define ex-tree (car (ptb-read (open-input-file "/home/joseph/Data/PTB/combined/wsj/00/wsj_0003.mrg"))))
+(define ex-tree-tree (sexp->tree ex-tree))
 
 (define npsbj (cadr
                (cadr
                 (cadr ex-tree))))
 (define basenp (cadr (cadr npsbj)))
+
+(define npsbjconst (tree-root-constituent ex-tree-tree))
 
 (trx-match pat npsbj)
 (trx-match non-recursive npsbj)
