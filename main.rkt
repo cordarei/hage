@@ -10,10 +10,10 @@
 (define (car-or-false lst) (if (null? lst) #f (car lst)))
 
 ;; (string? (list string?) (or/c number? #f) (or/c number? #f))
-(struct ptb/label (category functions coindex coordindex) #:transparent)
+(struct ptb-label (category functions coindex coordindex) #:transparent)
 
 ;; (-> string? constituent-label?)
-(define (parse-label lbl)
+(define (string->ptb-label lbl)
   (define parts (regexp-split #rx"(?=[-=])" lbl))
   (define category (car parts))
   ;
@@ -29,15 +29,15 @@
   (define coindex (collect-index #rx"-[0-9]"))
   (define coordindex (collect-index #rx"=[0-9]"))
   ;
-  (ptb/label category functions coindex coordindex))
+  (ptb-label category functions coindex coordindex))
 
 
 ;; tests
 (define lbl-complex "PP-LOC-PRD-TPC-3")
 (define lbl-complex2 "NP=2")
 
-(parse-label lbl-complex)
-(parse-label lbl-complex2)
+(string->ptb-label lbl-complex)
+(string->ptb-label lbl-complex2)
 
 
 ;; ---------------------------------------------------------------------------------------------------
@@ -48,8 +48,22 @@
 (struct constituent (label attr children) #:transparent)
 (struct tagged-word (word pos attr) #:transparent)
 
-(define (get-attr k attr) (assoc k attr))
-(define (set-attr k v attr) (cons (cons k v) (filter (λ (x) (not (equal? k (car x)))) attr)))
+(define (attr-get k attr) (assoc k attr))
+(define (attr-set k v attr) (cons (cons k v) (filter (λ (x) (not (equal? k (car x)))) attr)))
+
+(define (tree-attr k t)
+  (match t
+    [(tagged-word w p a)
+     (attr-get k a)]
+    [(constituent l a c)
+     (attr-get k a)]))
+
+(define (update-attr k v t)
+  (match t
+    [(tagged-word w p a)
+     (tagged-word w p (attr-set k v a))]
+    [(constituent l a c)
+     (constituent l (attr-set k v a) c)]))
 
 (define (sexp->tree sxp)
   (define (helper s)
@@ -59,7 +73,7 @@
       [(list "ROOT" (? list? child))
        (helper child)]
       [(list (? string? label) (? list? children) ...)
-       (constituent (parse-label label) '() (map helper children))]))
+       (constituent (string->ptb-label label) '() (map helper children))]))
   (tree (helper sxp)))
 
 
@@ -97,21 +111,28 @@
            (values (cons new-child new-children)
                    new-end)))
        (values (constituent label
-                            (set-attr 'span (cons start end) attr)
+                            (attr-set 'span (cons start end) attr)
                             (reverse new-children))
                end)]
       [(tagged-word word pos attr)
-       (values (tagged-word word pos (set-attr 'span (cons start (+ start 1)) attr))
+       (values (tagged-word word pos (attr-set 'span (cons start (+ start 1)) attr))
                (+ start 1))]))
   (let-values ([(root end) (helper (tree-root-constituent t) 0)])
     (tree root)))
 
 (define (annotate-empty t)
-  (match t
+ (define (annotate-empty x)
+  (match x
     [(tagged-word w p a)
-     (tagged-word w p (set-attr 'empty (equal? p "-NONE-") a))]
+     (tagged-word w p (attr-set 'empty (equal? p "-NONE-") a))]
     [(constituent l a cs)
-     ...]))
+     (define new-cs (map annotate-empty cs))
+     (constituent l
+                  (attr-set 'empty (or (map (λ (x) (tree-attr 'empty x)) new-cs)) a)
+                  new-cs)]
+    )
+  (tree (annotate-empty (tree-root-constituent t)))))
+
 
 
 ;;;
