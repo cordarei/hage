@@ -48,7 +48,7 @@
 (struct constituent (label attr children) #:transparent)
 (struct tagged-word (word pos attr) #:transparent)
 
-(define (attr-get k attr) (assoc k attr))
+(define (attr-get k attr) (define a (assoc k attr)) (and a (cdr a)))
 (define (attr-set k v attr) (cons (cons k v) (filter (λ (x) (not (equal? k (car x)))) attr)))
 
 (define (tree-attr k t)
@@ -128,10 +128,10 @@
     [(constituent l a cs)
      (define new-cs (map annotate-empty cs))
      (constituent l
-                  (attr-set 'empty (or (map (λ (x) (tree-attr 'empty x)) new-cs)) a)
+                  (attr-set 'empty (ormap (λ (x) (tree-attr 'empty x)) new-cs) a)
                   new-cs)]
-    )
-  (tree (annotate-empty (tree-root-constituent t)))))
+    ))
+  (tree (annotate-empty (tree-root-constituent t))))
 
 
 
