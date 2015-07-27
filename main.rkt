@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require racket/match)
+(require db)
 
 (require hage/parser)
 (require racket-trx/trx)
@@ -36,8 +37,8 @@
 (define lbl-complex "PP-LOC-PRD-TPC-3")
 (define lbl-complex2 "NP=2")
 
-(string->ptb-label lbl-complex)
-(string->ptb-label lbl-complex2)
+;; (string->ptb-label lbl-complex)
+;; (string->ptb-label lbl-complex2)
 
 
 ;; ---------------------------------------------------------------------------------------------------
@@ -145,22 +146,32 @@
 ;; ---------------------------------------------------------------------------------------------------
 ;; experiments
 
-(define (np? x) (equal? "NP" (substring x 0 2)))
-(define (! pred?) (lambda (x) (not (pred? x))))
+;; (define (np? x) (equal? "NP" (substring x 0 2)))
+;; (define (! pred?) (lambda (x) (not (pred? x))))
 
-(define pat (trx (^ ,np? (+ (any)))))
-(define non-recursive (trx (^ ,np? (+ (rec notnp (or (^ ,string? ,string?) (^ ,(! np?) (+ notnp))))))))
+;; (define pat (trx (^ ,np? (+ (any)))))
+;; (define non-recursive (trx (^ ,np? (+ (rec notnp (or (^ ,string? ,string?) (^ ,(! np?) (+ notnp))))))))
 
 (define ex-tree (car (ptb-read (open-input-file "/home/joseph/Data/PTB/combined/wsj/00/wsj_0003.mrg"))))
 (define ex-tree-tree (sexp->tree ex-tree))
 
-(define npsbj (cadr
-               (cadr
-                (cadr ex-tree))))
-(define basenp (cadr (cadr npsbj)))
+;; (define npsbj (cadr
+;;                (cadr
+;;                 (cadr ex-tree))))
+;; (define basenp (cadr (cadr npsbj)))
 
-(define npsbjconst (tree-root-constituent ex-tree-tree))
+;; (define npsbjconst (tree-root-constituent ex-tree-tree))
 
-(trx-match pat npsbj)
-(trx-match non-recursive npsbj)
-(trx-match non-recursive basenp)
+;; (trx-match pat npsbj)
+;; (trx-match non-recursive npsbj)
+;; (trx-match non-recursive basenp)
+
+(define conn (sqlite3-connect #:database "/home/joseph/Work/test.db" #:mode 'create))
+(query-exec conn "create table words(word)")
+(define insert-st (prepare conn "insert into words values($1)" ))
+(for ((w (yield ex-tree-tree)))
+  #;(query-exec conn (format "insert into words values (\"~a\")" w))
+  (query-exec conn insert-st w)
+  )
+(query-list conn "select * from words")
+(disconnect conn)
